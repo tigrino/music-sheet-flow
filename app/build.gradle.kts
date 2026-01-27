@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "net.tigr.musicsheetflow"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "net.tigr.musicsheetflow"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
 
@@ -44,7 +44,7 @@ android {
             isMinifyEnabled = false
             ndk {
                 abiFilters.clear()
-                abiFilters += listOf("x86_64", "arm64-v8a")  // Emulator + real devices
+                abiFilters += listOf("x86_64", "arm64-v8a", "armeabi-v7a")  // Emulator + all ARM devices
             }
         }
         release {

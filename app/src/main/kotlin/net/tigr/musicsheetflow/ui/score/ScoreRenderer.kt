@@ -31,6 +31,7 @@ data class ScoreRenderConfig(
     val staffSpacing: Float = 115f,         // Space between treble and bass staves
     val systemSpacing: Float = 35f,         // Space between systems (rows) - portrait only
     val leftMargin: Float = 25f,            // Left margin
+    val topMargin: Float = 80f,             // Top margin for ledger lines above staff
     val measureWidth: Float = 280f,         // Width per measure
     val noteSpacing: Float = 45f,           // Minimum spacing between notes
     val clefWidth: Float = 55f,             // Space for clef
@@ -206,7 +207,9 @@ private fun ScoreRendererLandscape(
                 .fillMaxHeight()
         ) {
             val canvasHeight = size.height
-            val staffY = (canvasHeight - config.staffHeight * 2 - config.staffSpacing) / 2
+            // Center vertically but ensure minimum topMargin for ledger lines above staff
+            val naturalCenter = (canvasHeight - config.staffHeight * 2 - config.staffSpacing) / 2
+            val staffY = maxOf(naturalCenter, config.topMargin)
 
             // Draw grand staff
             drawGrandStaff(config, staffY, staffY + config.staffHeight + config.staffSpacing, totalWidth)
@@ -309,17 +312,18 @@ private fun ScoreRendererPortrait(
         staffHeight = 95f,
         staffSpacing = 130f,
         systemSpacing = 55f,
+        topMargin = 100f,  // Extra space for high notes with ledger lines
         measureWidth = calculatedMeasureWidth,
         clefWidth = baseClefWidth,
         keySignatureWidth = baseKeySignatureWidth,
         timeSignatureWidth = baseTimeSignatureWidth
     )
 
-    // Calculate system height
-    val systemHeight = portraitConfig.staffHeight * 2 + portraitConfig.staffSpacing + portraitConfig.systemSpacing
+    // Calculate system height (includes topMargin for ledger lines above treble staff)
+    val systemHeight = portraitConfig.topMargin + portraitConfig.staffHeight * 2 + portraitConfig.staffSpacing + portraitConfig.systemSpacing
 
     val numSystems = ((totalMeasures + measuresPerSystem - 1) / measuresPerSystem).coerceAtLeast(1)
-    val totalHeight = numSystems * systemHeight + 25f
+    val totalHeight = numSystems * systemHeight + 50f
 
     // Auto-scroll to current system
     val currentSystem = if (playbackBeat != null) {
@@ -358,9 +362,9 @@ private fun ScoreRendererPortrait(
                 val startMeasure = systemIndex * measuresPerSystem
                 val endMeasure = minOf(startMeasure + measuresPerSystem, totalMeasures)
 
-                val systemY = systemIndex * systemHeight + 15f
-                val trebleY = systemY
-                val bassY = systemY + portraitConfig.staffHeight + portraitConfig.staffSpacing
+                val systemY = systemIndex * systemHeight
+                val trebleY = systemY + portraitConfig.topMargin  // Leave space for ledger lines above
+                val bassY = trebleY + portraitConfig.staffHeight + portraitConfig.staffSpacing
 
                 val systemMeasures = endMeasure - startMeasure
                 val systemWidth = systemPrefixWidth + systemMeasures * portraitConfig.measureWidth + 15f
