@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -380,10 +381,6 @@ fun MainScreen(
             countInBeat = 0
             isPracticeMode = false
             noteMatcher.stop()
-            // Show session summary if any notes were played
-            if (sessionStats.totalNotes > 0) {
-                showSessionSummary = true
-            }
             return
         }
 
@@ -534,17 +531,15 @@ fun MainScreen(
             showNoteNames = showNoteNames,
             onToggleNoteNames = { showNoteNames = !showNoteNames },
             onCountInChange = { countInMeasures = it },
+            onShowStats = { showSessionSummary = true },
             onOpenSettings = { showPitchSettings = true }
         )
 
-        // Session Summary Dialog
+        // Session Summary Dialog (stats reset only when starting new practice)
         if (showSessionSummary) {
             SessionSummaryDialog(
                 stats = sessionStats,
-                onDismiss = {
-                    showSessionSummary = false
-                    sessionStats = SessionStats()
-                }
+                onDismiss = { showSessionSummary = false }
             )
         }
 
@@ -1604,6 +1599,7 @@ fun ControlBar(
     onToggleMetronome: () -> Unit = {},
     onToggleNoteNames: () -> Unit = {},
     onCountInChange: (Int) -> Unit = {},
+    onShowStats: () -> Unit = {},
     onOpenSettings: () -> Unit = {}
 ) {
     val tempo = beatClockState?.tempo?.toInt() ?: 120
@@ -1722,6 +1718,9 @@ fun ControlBar(
                         CountInChip(countInMeasures, isPracticeMode, isCountingIn, onCountInChange, compact = true)
                         NoteNamesChip(showNoteNames, onToggleNoteNames, compact = true)
 
+                        IconButton(onClick = onShowStats, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Default.Info, contentDescription = "Session Stats")
+                        }
                         IconButton(onClick = onOpenSettings, modifier = Modifier.size(40.dp)) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
@@ -1788,6 +1787,9 @@ fun ControlBar(
                         MetronomeChip(isMetronomeEnabled, beatClockState, beatInMeasure, beatsPerMeasure, onToggleMetronome, compact = false)
                         CountInChip(countInMeasures, isPracticeMode, isCountingIn, onCountInChange, compact = false)
                         NoteNamesChip(showNoteNames, onToggleNoteNames, compact = false)
+                        IconButton(onClick = onShowStats) {
+                            Icon(Icons.Default.Info, contentDescription = "Session Stats")
+                        }
                         IconButton(onClick = onOpenSettings) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }

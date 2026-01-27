@@ -10,14 +10,14 @@ data class Score(
     val credits: List<String> = emptyList()
 ) {
     /**
-     * Get all notes from all parts in chronological order by measure.
+     * Get all notes from all parts in chronological order by measure and beat position.
      */
     fun getAllNotes(): List<Note> {
         return parts.flatMap { part ->
             part.measures.flatMap { measure ->
                 measure.notes
             }
-        }
+        }.sortedWith(compareBy({ it.measureNumber }, { it.positionInMeasure }))
     }
 
     /**

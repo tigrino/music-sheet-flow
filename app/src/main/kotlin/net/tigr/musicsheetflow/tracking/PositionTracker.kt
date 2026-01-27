@@ -111,11 +111,12 @@ class PositionTracker {
     fun loadScore(score: Score) {
         // Extract playable notes (non-rests, non-chord notes for simplicity)
         // In v1.0, we only track monophonic - take the first note at each position
+        // Sort by measure number first, then by position within measure
         playableNotes = score.parts.flatMap { part ->
             part.measures.flatMap { measure ->
                 measure.notes.filter { !it.isRest && !it.isChord && !it.isTiedStop }
             }
-        }
+        }.sortedWith(compareBy({ it.measureNumber }, { it.positionInMeasure }))
 
         reset()
     }

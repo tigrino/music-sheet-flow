@@ -150,34 +150,40 @@ private fun ScoreRendererLandscape(
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Calculate note positions for auto-scroll
+    // Calculate note positions for auto-scroll (using sorted order to match PositionTracker)
     val notePositions = remember(score) {
         val positions = mutableMapOf<Int, Float>()
-        var globalIndex = 0
         val xOffset = config.leftMargin + config.clefWidth + config.keySignatureWidth + config.timeSignatureWidth
 
-        part.measures.forEachIndexed { measureIndex, measure ->
-            val measureX = xOffset + measureIndex * config.measureWidth
-            val measureNotes = measure.notes.filter { !it.isRest && !it.isChord }
-            val divisions = measure.attributes?.divisions ?: 2
-            val measureBeats = measure.attributes?.timeBeats ?: 4
+        // Build sorted note list matching PositionTracker order
+        // Must use same filter: no rests, no chords, no tied stops
+        val allNotes = part.measures.flatMap { measure ->
+            measure.notes.filter { !it.isRest && !it.isChord && !it.isTiedStop }
+        }.sortedWith(compareBy({ it.measureNumber }, { it.positionInMeasure }))
 
-            measureNotes.forEach { note ->
+        allNotes.forEachIndexed { sortedIndex, note ->
+            val measureIndex = note.measureNumber - 1  // measureNumber is 1-based
+            if (measureIndex >= 0 && measureIndex < part.measures.size) {
+                val measure = part.measures[measureIndex]
+                val measureX = xOffset + measureIndex * config.measureWidth
+                val divisions = measure.attributes?.divisions ?: 2
+                val measureBeats = measure.attributes?.timeBeats ?: 4
                 val beatPosition = note.positionInMeasure.toFloat() / divisions
                 val noteX = measureX + 20f + (beatPosition / measureBeats) * (config.measureWidth - 40f)
-                positions[globalIndex] = noteX
-                globalIndex++
+                positions[sortedIndex] = noteX
             }
         }
         positions
     }
 
     // Auto-scroll to current note (practice mode)
+    // Keep current note about 1/3 from left edge to show past notes
     LaunchedEffect(currentNoteIndex) {
         if (currentNoteIndex >= 0 && playbackBeat == null) {
             val noteX = notePositions[currentNoteIndex]
             if (noteX != null) {
-                val targetScroll = (noteX - 150f).coerceAtLeast(0f).toInt()
+                val scrollOffset = config.measureWidth * 1.2f  // Show ~1 measure of past notes
+                val targetScroll = (noteX - scrollOffset).coerceAtLeast(0f).toInt()
                 coroutineScope.launch {
                     scrollState.animateScrollTo(targetScroll, tween(durationMillis = 300))
                 }
@@ -193,7 +199,8 @@ private fun ScoreRendererLandscape(
             val beatInMeasure = playbackBeat % beatsPerMeasure
             val measureX = xOffset + measureIndex * config.measureWidth
             val targetX = measureX + 20f + (beatInMeasure / beatsPerMeasure) * (config.measureWidth - 40f)
-            val targetScroll = (targetX - 150f).coerceAtLeast(0f).toInt()
+            val scrollOffset = config.measureWidth * 1.2f
+            val targetScroll = (targetX - scrollOffset).coerceAtLeast(0f).toInt()
             coroutineScope.launch {
                 scrollState.animateScrollTo(targetScroll, tween(durationMillis = 200))
             }
@@ -229,8 +236,18 @@ private fun ScoreRendererLandscape(
             }
             xOffset += config.timeSignatureWidth
 
+            // Build sorted note list for consistent indexing with PositionTracker
+            // Must use same filter as PositionTracker: no rests, no chords, no tied stops
+            val allNotes = part.measures.flatMap { measure ->
+                measure.notes.filter { !it.isRest && !it.isChord && !it.isTiedStop }
+            }.sortedWith(compareBy({ it.measureNumber }, { it.positionInMeasure }))
+
+            // Create a map from note identity to its sorted index
+            val noteToIndex = allNotes.mapIndexed { index, note ->
+                Triple(note.measureNumber, note.positionInMeasure, note.midiNote()) to index
+            }.toMap()
+
             // Draw notes
-            var globalNoteIndex = 0
             var cumulativeBeats = 0f
 
             part.measures.forEachIndexed { measureIndex, measure ->
@@ -250,7 +267,11 @@ private fun ScoreRendererLandscape(
                     val absoluteBeat = cumulativeBeats + beatPosition
                     val isPlaybackCurrent = playbackBeat != null && kotlin.math.abs(absoluteBeat - playbackBeat) < 0.1f
 
-                    val noteState = noteStateMap[globalNoteIndex]
+                    // Look up the note's index in the sorted order
+                    val noteKey = Triple(note.measureNumber, note.positionInMeasure, note.midiNote())
+                    val sortedIndex = noteToIndex[noteKey] ?: -1
+                    val noteState = noteStateMap[sortedIndex]
+
                     val noteColor = when {
                         isPlaybackCurrent -> MusicSheetFlowColors.CorrectEarlyLate
                         noteState == NoteState.CURRENT -> MusicSheetFlowColors.CurrentNote
@@ -262,7 +283,6 @@ private fun ScoreRendererLandscape(
                     }
 
                     drawNote(bravuraTypeface, config, note, staffY, staffY + config.staffHeight + config.staffSpacing, noteX, noteColor, showNoteNames, namingSystem)
-                    globalNoteIndex++
                 }
                 cumulativeBeats += measureBeats
             }
@@ -349,13 +369,23 @@ private fun ScoreRendererPortrait(
         }
     }
 
+    // Build sorted note list for consistent indexing with PositionTracker
+    // Must use same filter: no rests, no chords, no tied stops
+    val allNotes = part.measures.flatMap { measure ->
+        measure.notes.filter { !it.isRest && !it.isChord && !it.isTiedStop }
+    }.sortedWith(compareBy({ it.measureNumber }, { it.positionInMeasure }))
+
+    // Create a map from note identity to its sorted index
+    val noteToIndex = allNotes.mapIndexed { index, note ->
+        Triple(note.measureNumber, note.positionInMeasure, note.midiNote()) to index
+    }.toMap()
+
     Box(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(with(density) { totalHeight.toDp() })
         ) {
-            var globalNoteIndex = 0
             var cumulativeBeats = 0f
 
             for (systemIndex in 0 until numSystems) {
@@ -408,7 +438,11 @@ private fun ScoreRendererPortrait(
                         val absoluteBeat = cumulativeBeats + beatPosition
                         val isPlaybackCurrent = playbackBeat != null && kotlin.math.abs(absoluteBeat - playbackBeat) < 0.1f
 
-                        val noteState = noteStateMap[globalNoteIndex]
+                        // Look up the note's index in the sorted order
+                        val noteKey = Triple(note.measureNumber, note.positionInMeasure, note.midiNote())
+                        val sortedIndex = noteToIndex[noteKey] ?: -1
+                        val noteState = noteStateMap[sortedIndex]
+
                         val noteColor = when {
                             isPlaybackCurrent -> MusicSheetFlowColors.CorrectEarlyLate
                             noteState == NoteState.CURRENT -> MusicSheetFlowColors.CurrentNote
@@ -420,7 +454,6 @@ private fun ScoreRendererPortrait(
                         }
 
                         drawNote(bravuraTypeface, portraitConfig, note, trebleY, bassY, noteX, noteColor, showNoteNames, namingSystem)
-                        globalNoteIndex++
                     }
                     cumulativeBeats += measureBeats
                 }
@@ -684,6 +717,11 @@ private fun DrawScope.drawNote(
     // Draw ledger lines if needed
     drawLedgerLines(config, staffY, positionOnStaff, x, lineSpacing)
 
+    // Baseline offset for SMuFL noteheads
+    // Bravura font baseline is above notehead center
+    // This offset adjusts the notehead so its center aligns with the staff line
+    val noteheadOffset = lineSpacing * 0.0f
+
     // Draw accidental if present
     if (pitch.alter != 0) {
         val accidental = SMuFLGlyphs.accidentalForAlter(pitch.alter)
@@ -691,7 +729,7 @@ private fun DrawScope.drawNote(
             drawContext.canvas.nativeCanvas.drawText(
                 accidental.toString(),
                 x - 15f,
-                noteY + fontSize * 0.3f,
+                noteY + noteheadOffset,
                 paint
             )
         }
@@ -707,7 +745,7 @@ private fun DrawScope.drawNote(
     drawContext.canvas.nativeCanvas.drawText(
         notehead.toString(),
         x,
-        noteY + fontSize * 0.3f,
+        noteY + noteheadOffset,
         paint
     )
 
@@ -732,7 +770,7 @@ private fun DrawScope.drawNote(
             drawContext.canvas.nativeCanvas.drawText(
                 flag.toString(),
                 stemX - 1f,
-                stemEndY + if (stemUp) fontSize * 0.3f else -fontSize * 0.1f,
+                stemEndY,
                 paint
             )
         }
@@ -757,9 +795,9 @@ private fun DrawScope.drawNote(
 
         // Draw name below the note (or above if stem goes down and note is low)
         val nameY = if (positionOnStaff >= 4) {
-            noteY + fontSize * 0.6f  // Below note
+            noteY + fontSize * 0.45f  // Below note
         } else {
-            noteY - fontSize * 0.3f  // Above note
+            noteY - fontSize * 0.35f  // Above note
         }
 
         drawContext.canvas.nativeCanvas.drawText(
@@ -802,10 +840,11 @@ private fun DrawScope.drawRest(
     val restY = staffY + lineSpacing * 2  // Center of staff
 
     val rest = SMuFLGlyphs.restForType(note.type.name.lowercase())
+    val restOffset = lineSpacing * 0.0f
     drawContext.canvas.nativeCanvas.drawText(
         rest.toString(),
         x,
-        restY + fontSize * 0.3f,
+        restY + restOffset,
         paint
     )
 }
@@ -814,6 +853,9 @@ private fun DrawScope.drawRest(
  * Calculate the Y position of a note on the staff.
  * Returns (staffY, positionOnStaff) where positionOnStaff is:
  * 0 = top line, 2 = space below top line, 4 = second line, etc.
+ *
+ * Position is based on diatonic (natural) note position, not chromatic.
+ * Sharps/flats appear on the same line as their natural note.
  */
 private fun calculateNotePosition(
     pitch: Pitch,
@@ -824,24 +866,31 @@ private fun calculateNotePosition(
 ): Pair<Float, Int> {
     val staffY = if (staff == 1) trebleY else bassY
 
-    // Calculate position relative to staff
-    // For treble clef: E4 is bottom line (position 8), F5 is top line (position 0)
-    // For bass clef: G2 is bottom line (position 8), A3 is top line (position 0)
+    // Convert step (C-B) to index within octave (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
+    val stepIndex = when (pitch.step) {
+        'C' -> 0
+        'D' -> 1
+        'E' -> 2
+        'F' -> 3
+        'G' -> 4
+        'A' -> 5
+        'B' -> 6
+        else -> 0
+    }
+
+    // Calculate diatonic note number (C0=0, D0=1, ... C1=7, D1=8, ...)
+    val diatonicNote = pitch.octave * 7 + stepIndex
 
     val position = if (staff == 1) {
-        // Treble clef - middle line is B4
-        // E4 = 8, F4 = 7, G4 = 6, A4 = 5, B4 = 4, C5 = 3, D5 = 2, E5 = 1, F5 = 0
-        val midiNote = pitch.toMidiNote()
-        val e4Midi = 64  // E4
-        val posFromE4 = midiNote - e4Midi
-        8 - posFromE4
+        // Treble clef: F5 is top line (position 0), E4 is bottom line (position 8)
+        // F5 diatonic = 5*7 + 3 = 38
+        val f5Diatonic = 38
+        (f5Diatonic - diatonicNote)
     } else {
-        // Bass clef - middle line is D3
-        // G2 = 8, A2 = 7, B2 = 6, C3 = 5, D3 = 4, E3 = 3, F3 = 2, G3 = 1, A3 = 0
-        val midiNote = pitch.toMidiNote()
-        val g2Midi = 43  // G2
-        val posFromG2 = midiNote - g2Midi
-        8 - posFromG2
+        // Bass clef: A3 is top line (position 0), G2 is bottom line (position 8)
+        // A3 diatonic = 3*7 + 5 = 26
+        val a3Diatonic = 26
+        (a3Diatonic - diatonicNote)
     }
 
     return staffY to position
