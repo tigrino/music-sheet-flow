@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary colors -->
+    <color name="primary">#2196F3</color>
+    <color name="primary_dark">#1976D2</color>
+    <color name="primary_light">#BBDEFB</color>
+
+    <!-- Background -->
+    <color name="background">#FFFBFE</color>
+    <color name="score_background">#FFFEF8</color>
+
+    <!-- Note states -->
+    <color name="note_current">#2196F3</color>
+    <color name="note_correct">#4CAF50</color>
+    <color name="note_early_late">#FFEB3B</color>
+    <color name="note_wrong">#F44336</color>
+    <color name="note_skipped">#9E9E9E</color>
+    <color name="note_upcoming">#000000</color>
+    <color name="note_played">#81C784</color>
+    <color name="page_turn">#FF9800</color>
+
+    <!-- Keyboard -->
+    <color name="key_white">#FFFFFF</color>
+    <color name="key_black">#1A1A1A</color>
+    <color name="key_border">#E0E0E0</color>
+</resources>

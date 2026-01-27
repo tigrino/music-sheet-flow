@@ -1,0 +1,88 @@
+# Project working directory (not part of repo)
+work/
+
+# Claude task log
+.claude_task_log.txt
+
+# Android/Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+*.hprof
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Kotlin
+*.kotlin_module
+
+# Generated files
+bin/
+gen/
+out/
+release/
+
+# Android Studio
+*.jks
+*.keystore
+google-services.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# IDE
+.vscode/
+*.code-workspace
+.idea/
+*.ipr
+*.iws
+
+# Test output
+test-results/
+test-output/
+
+# Coverage reports
+coverage/
+*.exec
+
+# Native
+obj/
+libs/armeabi/
+libs/armeabi-v7a/
+libs/arm64-v8a/
+libs/x86/
+libs/x86_64/
+
+# Proguard
+proguard/
+
+# Secrets - NEVER commit these
+*.env
+.env.*
+credentials.json
+secrets.json
+api-keys.json
