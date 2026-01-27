@@ -51,6 +51,24 @@ Java_net_tigr_musicsheetflow_audio_NativeAudioEngine_nativeSetNoiseGate(
 }
 
 JNIEXPORT void JNICALL
+Java_net_tigr_musicsheetflow_audio_NativeAudioEngine_nativeSetConfidenceThreshold(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat threshold) {
+    auto* engine = musicsheetflow::getAudioEngine();
+    engine->setConfidenceThreshold(threshold);
+}
+
+JNIEXPORT void JNICALL
+Java_net_tigr_musicsheetflow_audio_NativeAudioEngine_nativeSetSilenceThreshold(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat thresholdDb) {
+    auto* engine = musicsheetflow::getAudioEngine();
+    engine->setSilenceThreshold(thresholdDb);
+}
+
+JNIEXPORT void JNICALL
 Java_net_tigr_musicsheetflow_audio_NativeAudioEngine_nativeSetCallback(
         JNIEnv* env,
         jobject thiz,

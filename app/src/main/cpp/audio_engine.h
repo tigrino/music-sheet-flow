@@ -24,6 +24,10 @@ public:
     virtual void stop() = 0;
     virtual void setNoiseGateThreshold(float thresholdDb) = 0;
     virtual void setPitchCallback(PitchCallback callback) = 0;
+
+    // Pitch detection settings
+    virtual void setConfidenceThreshold(float threshold) = 0;
+    virtual void setSilenceThreshold(float thresholdDb) = 0;
 };
 
 // Factory function - returns the singleton instance

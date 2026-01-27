@@ -1,4 +1,113 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Music Sheet Flow</string>
+
+    <!-- Note names (English letter notation) -->
+    <string name="note_c">C</string>
+    <string name="note_d">D</string>
+    <string name="note_e">E</string>
+    <string name="note_f">F</string>
+    <string name="note_g">G</string>
+    <string name="note_a">A</string>
+    <string name="note_b">B</string>
+    <string name="note_rest">rest</string>
+
+    <!-- Accidentals -->
+    <string name="accidental_sharp">#</string>
+    <string name="accidental_flat">b</string>
+
+    <!-- Key signatures -->
+    <string name="key_c_major">C Major</string>
+    <string name="key_g_major">G Major</string>
+    <string name="key_d_major">D Major</string>
+    <string name="key_a_major">A Major</string>
+    <string name="key_e_major">E Major</string>
+    <string name="key_b_major">B Major</string>
+    <string name="key_f_sharp_major">F# Major</string>
+    <string name="key_c_sharp_major">C# Major</string>
+    <string name="key_f_major">F Major</string>
+    <string name="key_b_flat_major">Bb Major</string>
+    <string name="key_e_flat_major">Eb Major</string>
+    <string name="key_a_flat_major">Ab Major</string>
+    <string name="key_d_flat_major">Db Major</string>
+    <string name="key_g_flat_major">Gb Major</string>
+    <string name="key_c_flat_major">Cb Major</string>
+    <string name="key_unknown">Unknown</string>
+
+    <!-- Main screen -->
+    <string name="loading">Loading...</string>
+    <string name="button_ok">OK</string>
+    <string name="button_done">Done</string>
+    <string name="button_retry">Retry</string>
+
+    <!-- Library screen -->
+    <string name="library_title">Score Library</string>
+    <string name="library_search_hint">Search by title or composer...</string>
+    <string name="library_scores_count">%d scores available</string>
+    <string name="library_no_scores">No scores found</string>
+    <string name="library_no_matching">No matching scores</string>
+    <string name="library_import_success">Score imported successfully</string>
+    <string name="library_import_failed">Failed to import score</string>
+    <string name="library_import_error">Failed to import score. Please check the file format.</string>
+    <string name="library_load_error">Unable to load score library. Please try again.</string>
+    <string name="library_measures">%d measures</string>
+    <string name="library_notes">%d notes</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_back">Back</string>
+    <string name="cd_library">Library</string>
+    <string name="cd_practice">Practice</string>
+    <string name="cd_settings">Settings</string>
+    <string name="cd_import_score">Import score</string>
+    <string name="cd_clear_search">Clear search</string>
+
+    <!-- Practice screen -->
+    <string name="practice_expected">Expected</string>
+    <string name="practice_detected">Detected</string>
+    <string name="practice_timing">Timing</string>
+    <string name="practice_wait_mode">Wait</string>
+    <string name="practice_early">Early</string>
+    <string name="practice_late">Late</string>
+    <string name="practice_on_time">On Time</string>
+    <string name="practice_wrong">Wrong</string>
+    <string name="practice_skipped">Skipped</string>
+
+    <!-- Piano keyboard -->
+    <string name="keyboard_tap_to_play">Tap keys to play!</string>
+    <string name="keyboard_loading_soundfont">Loading SoundFont...</string>
+
+    <!-- Session stats -->
+    <string name="stats_title">Practice Summary</string>
+    <string name="stats_session_stats">Session Stats</string>
+    <string name="stats_accuracy">Accuracy</string>
+    <string name="stats_accuracy_value">Accuracy: %s</string>
+    <string name="stats_notes_played">Notes Played</string>
+    <string name="stats_correct">Correct</string>
+    <string name="stats_correct_value">Correct: %d</string>
+    <string name="stats_wrong">Wrong</string>
+    <string name="stats_wrong_value">Wrong: %d</string>
+    <string name="stats_skipped">Skipped</string>
+    <string name="stats_skip_value">Skip: %d</string>
+    <string name="stats_timing">Timing</string>
+    <string name="stats_on_time">On-time</string>
+    <string name="stats_on_time_value">On-time: %s</string>
+
+    <!-- Metronome -->
+    <string name="metronome">Metronome</string>
+    <string name="count_in">Count-in</string>
+
+    <!-- Note names toggle -->
+    <string name="note_names">Names</string>
+
+    <!-- Settings -->
+    <string name="settings_pitch_detection">Pitch Detection Settings</string>
+    <string name="settings_confidence">Confidence</string>
+    <string name="settings_confidence_hint">Lower = more detections (may have false positives)</string>
+    <string name="settings_silence">Silence</string>
+    <string name="settings_silence_hint">Lower = more sensitive to quiet sounds</string>
+    <string name="settings_noise_gate">Noise Gate</string>
+    <string name="settings_noise_gate_hint">Lower = filters less background noise</string>
+
+    <!-- Placeholders -->
+    <string name="placeholder_dash">--</string>
 </resources>

@@ -15,14 +15,10 @@ data class PitchEvent(
     val timestampNs: Long
 ) {
     /**
-     * Get note name from MIDI note number.
+     * Get note name from MIDI note number using locale-aware naming.
      */
     fun noteName(): String {
-        if (midiNote < 0) return "--"
-        val noteNames = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
-        val octave = (midiNote / 12) - 1
-        val note = noteNames[midiNote % 12]
-        return "$note$octave"
+        return net.tigr.musicsheetflow.util.NoteNaming.fromMidi(midiNote)
     }
 }
 
@@ -78,8 +74,26 @@ class NativeAudioEngine @Inject constructor() {
         nativeSetNoiseGate(thresholdDb)
     }
 
+    /**
+     * Set the minimum confidence threshold for pitch detection (0.0-1.0)
+     * Lower values = more detections but possibly more false positives
+     */
+    fun setConfidenceThreshold(threshold: Float) {
+        nativeSetConfidenceThreshold(threshold.coerceIn(0.1f, 0.9f))
+    }
+
+    /**
+     * Set the silence threshold in dB (e.g., -50.0)
+     * Lower values (more negative) = more sensitive to quiet sounds
+     */
+    fun setSilenceThreshold(thresholdDb: Float) {
+        nativeSetSilenceThreshold(thresholdDb.coerceIn(-70f, -20f))
+    }
+
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeSetNoiseGate(thresholdDb: Float)
+    private external fun nativeSetConfidenceThreshold(threshold: Float)
+    private external fun nativeSetSilenceThreshold(thresholdDb: Float)
     private external fun nativeSetCallback(callback: PitchCallback?)
 }

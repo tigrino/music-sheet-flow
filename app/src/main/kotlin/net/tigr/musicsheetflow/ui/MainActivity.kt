@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -84,20 +85,8 @@ data class SessionStats(
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        // Handle permission result
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Request microphone permission
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
 
         enableEdgeToEdge()
         setContent {
@@ -106,7 +95,35 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation()
+                    // Track microphone permission state
+                    var hasMicPermission by remember {
+                        mutableStateOf(
+                            ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                        )
+                    }
+
+                    val permissionLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestPermission()
+                    ) { isGranted ->
+                        hasMicPermission = isGranted
+                        if (!isGranted) {
+                            android.util.Log.e("MainActivity", "Microphone permission denied")
+                        } else {
+                            android.util.Log.i("MainActivity", "Microphone permission granted")
+                        }
+                    }
+
+                    // Request permission on first launch
+                    LaunchedEffect(Unit) {
+                        if (!hasMicPermission) {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+
+                    AppNavigation(hasMicPermission = hasMicPermission)
                 }
             }
         }
@@ -125,7 +142,7 @@ enum class Screen {
  * Main app navigation.
  */
 @Composable
-fun AppNavigation() {
+fun AppNavigation(hasMicPermission: Boolean = false) {
     var currentScreen by remember { mutableStateOf(Screen.PRACTICE) }
     var selectedScoreFilename by remember { mutableStateOf("Bach_Minuet_in_G_Major_BWV_Anh._114.mxl") }
     var isScoreImported by remember { mutableStateOf(false) }
@@ -150,6 +167,7 @@ fun AppNavigation() {
                 scoreRepository = scoreRepository,
                 scoreFilename = selectedScoreFilename,
                 isImported = isScoreImported,
+                hasMicPermission = hasMicPermission,
                 onOpenLibrary = {
                     currentScreen = Screen.LIBRARY
                 }
@@ -163,6 +181,7 @@ fun MainScreen(
     scoreRepository: ScoreRepository,
     scoreFilename: String,
     isImported: Boolean = false,
+    hasMicPermission: Boolean = false,
     onOpenLibrary: () -> Unit
 ) {
     val context = LocalContext.current
@@ -174,6 +193,7 @@ fun MainScreen(
 
     // Initialize Audio engine for pitch detection
     val audioEngine = remember { NativeAudioEngine() }
+    var audioStarted by remember { mutableStateOf(false) }
     var currentPitch by remember { mutableStateOf<PitchEvent?>(null) }
 
     // Score loading
@@ -189,6 +209,13 @@ fun MainScreen(
     var isMetronomeEnabled by remember { mutableStateOf(false) }
     var showNoteNames by remember { mutableStateOf(false) }
 
+    // Note naming system (language) - defaults to device locale
+    var namingSystem by remember { mutableStateOf(net.tigr.musicsheetflow.util.NoteNaming.getNamingSystem()) }
+
+    // Keyboard highlighting state
+    var lastCorrectMidiNote by remember { mutableStateOf<Int?>(null) }
+    var lastWrongMidiNote by remember { mutableStateOf<Int?>(null) }
+
     // Session statistics
     var sessionStats by remember { mutableStateOf(SessionStats()) }
     var showSessionSummary by remember { mutableStateOf(false) }
@@ -199,19 +226,44 @@ fun MainScreen(
     var countInBeat by remember { mutableStateOf(0) }  // Current count-in beat (1-based)
     val countInJobRef = remember { mutableMapOf<String, kotlinx.coroutines.Job?>() }
 
+    // Pitch detection settings
+    var showPitchSettings by remember { mutableStateOf(false) }
+    var confidenceThreshold by remember { mutableFloatStateOf(0.3f) }
+    var silenceThreshold by remember { mutableFloatStateOf(-50f) }
+    var noiseGateThreshold by remember { mutableFloatStateOf(-46f) }
+
     // Score playback
     val scorePlayer = remember { ScorePlayer(midiEngine) }
     val playbackState by scorePlayer.state.collectAsState()
 
+    // Initialize MIDI engine (doesn't need mic permission)
     LaunchedEffect(Unit) {
         // Load SoundFont and start MIDI engine
         midiReady = midiEngine.loadBundledSoundFont(context)
         if (midiReady) {
             midiEngine.start()
+            android.util.Log.i("MainScreen", "MIDI engine started")
         }
+    }
 
-        // Start pitch detection
-        audioEngine.start()
+    // Start audio engine only when mic permission is granted
+    LaunchedEffect(hasMicPermission) {
+        if (hasMicPermission && !audioStarted) {
+            // Small delay to ensure audio subsystem is ready after permission grant
+            kotlinx.coroutines.delay(100)
+            android.util.Log.i("MainScreen", "Starting audio engine (permission granted)")
+            val started = audioEngine.start()
+            audioStarted = started
+            android.util.Log.i("MainScreen", "Audio engine started: $started")
+            if (!started) {
+                // Retry once after a longer delay
+                kotlinx.coroutines.delay(500)
+                android.util.Log.i("MainScreen", "Retrying audio engine start...")
+                val retryStarted = audioEngine.start()
+                audioStarted = retryStarted
+                android.util.Log.i("MainScreen", "Audio engine retry result: $retryStarted")
+            }
+        }
     }
 
     // Load score when filename or import status changes
@@ -231,11 +283,19 @@ fun MainScreen(
     }
 
     // Collect pitch events and process through note matcher
-    LaunchedEffect(Unit) {
-        audioEngine.pitchEvents.collect { event ->
-            currentPitch = event
-            if (isPracticeMode) {
-                noteMatcher.processPitchEvent(event, scope)
+    // Only start collecting when audio engine is confirmed started
+    LaunchedEffect(audioStarted) {
+        if (audioStarted) {
+            android.util.Log.i("MainScreen", "Starting pitch events collection")
+            audioEngine.pitchEvents.collect { event ->
+                currentPitch = event
+                // Clear wrong note highlight when new pitch is detected (will be re-evaluated by feedback)
+                if (isPracticeMode && event.midiNote >= 0) {
+                    lastWrongMidiNote = null
+                }
+                if (isPracticeMode) {
+                    noteMatcher.processPitchEvent(event, scope)
+                }
             }
         }
     }
@@ -246,7 +306,29 @@ fun MainScreen(
             lastFeedback = feedback
             if (isPracticeMode) {
                 sessionStats = sessionStats.addResult(feedback.result)
+
+                // Update keyboard highlighting based on result
+                val detectedMidi = feedback.detectedMidi
+                when (feedback.result) {
+                    MatchResult.CORRECT_ON_TIME, MatchResult.CORRECT_EARLY, MatchResult.CORRECT_LATE -> {
+                        lastCorrectMidiNote = detectedMidi
+                        lastWrongMidiNote = null  // Clear wrong note on success
+                    }
+                    MatchResult.WRONG_PITCH -> {
+                        lastWrongMidiNote = detectedMidi
+                        lastCorrectMidiNote = null  // Clear correct note
+                    }
+                    else -> { /* NO_MATCH, SKIPPED - no keyboard highlight change */ }
+                }
             }
+        }
+    }
+
+    // Clear correct note highlight after a brief flash (300ms)
+    LaunchedEffect(lastCorrectMidiNote) {
+        if (lastCorrectMidiNote != null) {
+            kotlinx.coroutines.delay(300)
+            lastCorrectMidiNote = null
         }
     }
 
@@ -257,6 +339,20 @@ fun MainScreen(
                 val isDownbeat = tick.beatInMeasure == 1
                 midiEngine.playMetronomeClick(isDownbeat)
             }
+        }
+    }
+
+    // Keep screen on during practice or playback mode
+    val activity = context as? android.app.Activity
+    DisposableEffect(isPracticeMode, playbackState.isPlaying, isCountingIn) {
+        val keepScreenOn = isPracticeMode || playbackState.isPlaying || isCountingIn
+        if (keepScreenOn) {
+            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -350,7 +446,9 @@ fun MainScreen(
         HeaderBar(
             title = currentScore?.title ?: "Loading...",
             tempo = currentScore?.parts?.firstOrNull()?.measures?.firstOrNull()?.tempo ?: 120,
-            onOpenLibrary = onOpenLibrary
+            namingSystem = namingSystem,
+            onOpenLibrary = onOpenLibrary,
+            onToggleLanguage = { namingSystem = net.tigr.musicsheetflow.util.NoteNaming.nextSystem(namingSystem) }
         )
 
         // Main content - stacked layout: score on top, keyboard below
@@ -377,6 +475,7 @@ fun MainScreen(
                         trackingState = trackingState,
                         playbackState = playbackState,
                         showNoteNames = showNoteNames,
+                        namingSystem = namingSystem,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -388,7 +487,8 @@ fun MainScreen(
                         currentPitch = currentPitch,
                         lastFeedback = lastFeedback,
                         isPracticeMode = isPracticeMode,
-                        expectedNoteName = noteMatcher.getExpectedNoteName()
+                        expectedMidiNote = noteMatcher.getExpectedMidiNote(),
+                        namingSystem = namingSystem
                     )
                 }
 
@@ -400,12 +500,11 @@ fun MainScreen(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     midiEngine = midiEngine,
                     midiReady = midiReady,
-                    expectedMidiNote = if (isPracticeMode) {
-                        trackingState?.noteStates?.entries
-                            ?.find { it.value == NoteState.CURRENT }
-                            ?.key
-                    } else null,
-                    playingMidiNotes = playbackState.playingMidiNotes
+                    expectedMidiNote = if (isPracticeMode) noteMatcher.getExpectedMidiNote() else null,
+                    correctMidiNote = if (isPracticeMode) lastCorrectMidiNote else null,
+                    wrongMidiNote = if (isPracticeMode) lastWrongMidiNote else null,
+                    playingMidiNotes = playbackState.playingMidiNotes,
+                    namingSystem = namingSystem
                 )
             }
         }
@@ -434,7 +533,8 @@ fun MainScreen(
             onToggleMetronome = { isMetronomeEnabled = !isMetronomeEnabled },
             showNoteNames = showNoteNames,
             onToggleNoteNames = { showNoteNames = !showNoteNames },
-            onCountInChange = { countInMeasures = it }
+            onCountInChange = { countInMeasures = it },
+            onOpenSettings = { showPitchSettings = true }
         )
 
         // Session Summary Dialog
@@ -445,6 +545,28 @@ fun MainScreen(
                     showSessionSummary = false
                     sessionStats = SessionStats()
                 }
+            )
+        }
+
+        // Pitch Detection Settings Dialog
+        if (showPitchSettings) {
+            PitchSettingsDialog(
+                confidenceThreshold = confidenceThreshold,
+                silenceThreshold = silenceThreshold,
+                noiseGateThreshold = noiseGateThreshold,
+                onConfidenceChange = { value ->
+                    confidenceThreshold = value
+                    audioEngine.setConfidenceThreshold(value)
+                },
+                onSilenceChange = { value ->
+                    silenceThreshold = value
+                    audioEngine.setSilenceThreshold(value)
+                },
+                onNoiseGateChange = { value ->
+                    noiseGateThreshold = value
+                    audioEngine.setNoiseGateThreshold(value)
+                },
+                onDismiss = { showPitchSettings = false }
             )
         }
     }
@@ -559,7 +681,9 @@ private fun StatRow(
 fun HeaderBar(
     title: String,
     tempo: Int,
-    onOpenLibrary: () -> Unit
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem,
+    onOpenLibrary: () -> Unit,
+    onToggleLanguage: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -568,16 +692,17 @@ fun HeaderBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Library button and title
+            // Library button and title (takes available space, can shrink)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.weight(1f, fill = false)
             ) {
-                IconButton(onClick = onOpenLibrary) {
+                IconButton(onClick = onOpenLibrary, modifier = Modifier.size(40.dp)) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(
                             id = android.R.drawable.ic_menu_sort_by_size
@@ -589,11 +714,17 @@ fun HeaderBar(
                 Text(
                     text = title,
                     color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Right side chips (fixed size, don't shrink)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = Color.White.copy(alpha = 0.2f)
@@ -601,7 +732,9 @@ fun HeaderBar(
                     Text(
                         text = "♩=$tempo",
                         color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        maxLines = 1
                     )
                 }
                 Surface(
@@ -609,16 +742,26 @@ fun HeaderBar(
                     color = Color.White.copy(alpha = 0.2f)
                 ) {
                     Text(
-                        text = "Wait Mode",
+                        text = "Wait",
                         color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        maxLines = 1
                     )
                 }
-                IconButton(onClick = { }) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = Color.White
+                // Language switcher chip
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.clickable { onToggleLanguage() }
+                ) {
+                    Text(
+                        text = net.tigr.musicsheetflow.util.NoteNaming.getLanguageLabel(namingSystem),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        maxLines = 1
                     )
                 }
             }
@@ -632,6 +775,7 @@ fun ScoreDisplay(
     trackingState: TrackingState? = null,
     playbackState: PlaybackState = PlaybackState(),
     showNoteNames: Boolean = false,
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem = net.tigr.musicsheetflow.util.NoteNaming.getNamingSystem(),
     modifier: Modifier = Modifier
 ) {
     // Determine current note index from tracking state (not playback - uses beat instead)
@@ -671,6 +815,7 @@ fun ScoreDisplay(
                     playedNoteIndices = playedNoteIndices,
                     noteStateMap = noteStateMap,
                     showNoteNames = showNoteNames,
+                    namingSystem = namingSystem,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -1022,16 +1167,7 @@ fun InteractiveKeyboard(
             if (noteInOctave !in listOf(1, 3, 6, 8, 10)) {  // Not C#, D#, F#, G#, A#
                 notes.add(currentNote)
                 val octave = (currentNote / 12) - 1
-                val noteName = when (noteInOctave) {
-                    0 -> "C"
-                    2 -> "D"
-                    4 -> "E"
-                    5 -> "F"
-                    7 -> "G"
-                    9 -> "A"
-                    11 -> "B"
-                    else -> "?"
-                }
+                val noteName = net.tigr.musicsheetflow.util.NoteNaming.whiteKeyName(noteInOctave)
                 names.add("$noteName$octave")
             }
             currentNote++
@@ -1146,7 +1282,10 @@ fun FullPianoKeyboard(
     midiEngine: NativeMidiEngine? = null,
     midiReady: Boolean = false,
     expectedMidiNote: Int? = null,
-    playingMidiNotes: Set<Int> = emptySet()
+    correctMidiNote: Int? = null,   // Just played correctly - flash green
+    wrongMidiNote: Int? = null,     // Wrong pitch - show red
+    playingMidiNotes: Set<Int> = emptySet(),
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem = net.tigr.musicsheetflow.util.NoteNaming.getNamingSystem()
 ) {
     // Piano range: C3 to C6 (3 octaves) - MIDI 48 to 84
     val startNote = 48  // C3
@@ -1193,26 +1332,21 @@ fun FullPianoKeyboard(
                     whiteKeys.forEachIndexed { index, midiNote ->
                         val noteInOctave = midiNote % 12
                         val octave = (midiNote / 12) - 1
-                        val noteName = when (noteInOctave) {
-                            0 -> "C"
-                            2 -> "D"
-                            4 -> "E"
-                            5 -> "F"
-                            7 -> "G"
-                            9 -> "A"
-                            11 -> "B"
-                            else -> ""
-                        }
+                        val noteName = net.tigr.musicsheetflow.util.NoteNaming.whiteKeyName(noteInOctave, namingSystem)
                         val isC = noteInOctave == 0
 
                         val isPressed = pressedKey == midiNote
                         val isHighlighted = expectedMidiNote == midiNote
+                        val isCorrect = correctMidiNote == midiNote
+                        val isWrong = wrongMidiNote == midiNote
                         val isPlaying = midiNote in playingMidiNotes
 
                         val keyColor = when {
                             isPressed -> MusicSheetFlowColors.CorrectOnTime
                             isPlaying -> MusicSheetFlowColors.CorrectEarlyLate
-                            isHighlighted -> MusicSheetFlowColors.CurrentNote
+                            isCorrect -> MusicSheetFlowColors.CorrectOnTime  // Just played correctly - green
+                            isWrong -> MusicSheetFlowColors.WrongPitch       // Wrong pitch - red
+                            isHighlighted -> MusicSheetFlowColors.CurrentNote  // Expected note - blue
                             else -> Color.White
                         }
 
@@ -1258,12 +1392,16 @@ fun FullPianoKeyboard(
                         if (blackNote in blackKeys) {
                             val isPressed = pressedKey == blackNote
                             val isHighlighted = expectedMidiNote == blackNote
+                            val isCorrect = correctMidiNote == blackNote
+                            val isWrong = wrongMidiNote == blackNote
                             val isPlaying = blackNote in playingMidiNotes
 
                             val keyColor = when {
                                 isPressed -> MusicSheetFlowColors.CorrectOnTime
                                 isPlaying -> MusicSheetFlowColors.CorrectEarlyLate
-                                isHighlighted -> MusicSheetFlowColors.CurrentNote
+                                isCorrect -> MusicSheetFlowColors.CorrectOnTime  // Just played correctly - green
+                                isWrong -> MusicSheetFlowColors.WrongPitch       // Wrong pitch - red
+                                isHighlighted -> MusicSheetFlowColors.CurrentNote  // Expected note - blue
                                 else -> Color(0xFF1A1A1A)  // Very dark gray/black
                             }
 
@@ -1314,12 +1452,18 @@ fun CompactInfoOverlay(
     currentPitch: PitchEvent? = null,
     lastFeedback: MatchFeedback? = null,
     isPracticeMode: Boolean = false,
-    expectedNoteName: String? = null
+    expectedMidiNote: Int? = null,
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem = net.tigr.musicsheetflow.util.NoteNaming.getNamingSystem()
 ) {
     // Only show during practice mode
     if (!isPracticeMode) return
 
-    val noteName = currentPitch?.noteName() ?: "--"
+    val noteName = currentPitch?.midiNote?.let {
+        net.tigr.musicsheetflow.util.NoteNaming.fromMidi(it, namingSystem)
+    } ?: "--"
+    val expectedNoteName = expectedMidiNote?.let {
+        net.tigr.musicsheetflow.util.NoteNaming.fromMidi(it, namingSystem)
+    }
     val feedbackColor = when (lastFeedback?.result) {
         MatchResult.CORRECT_ON_TIME -> MusicSheetFlowColors.CorrectOnTime
         MatchResult.CORRECT_EARLY, MatchResult.CORRECT_LATE -> MusicSheetFlowColors.CorrectEarlyLate
@@ -1459,7 +1603,8 @@ fun ControlBar(
     onTempoChange: (Float) -> Unit = {},
     onToggleMetronome: () -> Unit = {},
     onToggleNoteNames: () -> Unit = {},
-    onCountInChange: (Int) -> Unit = {}
+    onCountInChange: (Int) -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     val tempo = beatClockState?.tempo?.toInt() ?: 120
     val isPlaying = playbackState.isPlaying
@@ -1577,7 +1722,7 @@ fun ControlBar(
                         CountInChip(countInMeasures, isPracticeMode, isCountingIn, onCountInChange, compact = true)
                         NoteNamesChip(showNoteNames, onToggleNoteNames, compact = true)
 
-                        IconButton(onClick = { }, modifier = Modifier.size(40.dp)) {
+                        IconButton(onClick = onOpenSettings, modifier = Modifier.size(40.dp)) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     }
@@ -1643,7 +1788,7 @@ fun ControlBar(
                         MetronomeChip(isMetronomeEnabled, beatClockState, beatInMeasure, beatsPerMeasure, onToggleMetronome, compact = false)
                         CountInChip(countInMeasures, isPracticeMode, isCountingIn, onCountInChange, compact = false)
                         NoteNamesChip(showNoteNames, onToggleNoteNames, compact = false)
-                        IconButton(onClick = { }) {
+                        IconButton(onClick = onOpenSettings) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     }
@@ -1804,4 +1949,127 @@ private fun NoteNamesChip(
             }
         }
     }
+}
+
+@Composable
+fun PitchSettingsDialog(
+    confidenceThreshold: Float,
+    silenceThreshold: Float,
+    noiseGateThreshold: Float,
+    onConfidenceChange: (Float) -> Unit,
+    onSilenceChange: (Float) -> Unit,
+    onNoiseGateChange: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Pitch Detection Settings", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Confidence threshold
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Confidence", fontSize = 14.sp)
+                        Text(
+                            "%.0f%%".format(confidenceThreshold * 100),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MusicSheetFlowColors.CurrentNote
+                        )
+                    }
+                    Text(
+                        "Lower = more detections (may have false positives)",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                    Slider(
+                        value = confidenceThreshold,
+                        onValueChange = onConfidenceChange,
+                        valueRange = 0.1f..0.8f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MusicSheetFlowColors.CurrentNote,
+                            activeTrackColor = MusicSheetFlowColors.CurrentNote
+                        )
+                    )
+                }
+
+                HorizontalDivider()
+
+                // Silence threshold
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Silence", fontSize = 14.sp)
+                        Text(
+                            "%.0f dB".format(silenceThreshold),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MusicSheetFlowColors.CurrentNote
+                        )
+                    }
+                    Text(
+                        "Lower = more sensitive to quiet sounds",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                    Slider(
+                        value = silenceThreshold,
+                        onValueChange = onSilenceChange,
+                        valueRange = -70f..-30f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MusicSheetFlowColors.CurrentNote,
+                            activeTrackColor = MusicSheetFlowColors.CurrentNote
+                        )
+                    )
+                }
+
+                HorizontalDivider()
+
+                // Noise gate threshold
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Noise Gate", fontSize = 14.sp)
+                        Text(
+                            "%.0f dB".format(noiseGateThreshold),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MusicSheetFlowColors.CurrentNote
+                        )
+                    }
+                    Text(
+                        "Lower = filters less background noise",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                    Slider(
+                        value = noiseGateThreshold,
+                        onValueChange = onNoiseGateChange,
+                        valueRange = -60f..-30f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MusicSheetFlowColors.CurrentNote,
+                            activeTrackColor = MusicSheetFlowColors.CurrentNote
+                        )
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }

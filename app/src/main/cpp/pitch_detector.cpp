@@ -20,12 +20,28 @@ public:
         output_ = new_fvec(1);
         pitch_ = new_aubio_pitch("yinfast", bufferSize, bufferSize / 2, sampleRate);
         aubio_pitch_set_unit(pitch_, "Hz");
-        aubio_pitch_set_tolerance(pitch_, 0.85f);
-        aubio_pitch_set_silence(pitch_, -40.0f);
-        LOGI("aubio pitch detector initialized");
+        aubio_pitch_set_tolerance(pitch_, 0.7f);
+        aubio_pitch_set_silence(pitch_, silenceThresholdDb_);
+        LOGI("aubio pitch detector initialized: confidence=%.2f, silence=%.1fdB",
+             confidenceThreshold_, silenceThresholdDb_);
 #else
         LOGI("aubio not available, using stub pitch detector");
 #endif
+    }
+
+    void setConfidenceThreshold(float threshold) override {
+        confidenceThreshold_ = threshold;
+        LOGI("Confidence threshold set to %.2f", threshold);
+    }
+
+    void setSilenceThreshold(float thresholdDb) override {
+        silenceThresholdDb_ = thresholdDb;
+#ifdef HAVE_AUBIO
+        if (pitch_) {
+            aubio_pitch_set_silence(pitch_, thresholdDb);
+        }
+#endif
+        LOGI("Silence threshold set to %.1f dB", thresholdDb);
     }
 
     ~PitchDetectorImpl() override {
@@ -55,7 +71,8 @@ public:
         float freq = fvec_get_sample(output_, 0);
         float confidence = aubio_pitch_get_confidence(pitch_);
 
-        if (freq > 20.0f && confidence > 0.5f) {
+        // Use configurable confidence threshold
+        if (freq > 20.0f && confidence > confidenceThreshold_) {
             result.frequency = freq;
             result.confidence = confidence;
             result.midiNote = frequencyToMidi(freq);
@@ -84,6 +101,8 @@ private:
 
     int sampleRate_;
     int bufferSize_;
+    float confidenceThreshold_ = 0.3f;
+    float silenceThresholdDb_ = -50.0f;
 
 #ifdef HAVE_AUBIO
     fvec_t* input_ = nullptr;

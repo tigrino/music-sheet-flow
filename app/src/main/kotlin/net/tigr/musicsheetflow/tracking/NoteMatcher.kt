@@ -27,9 +27,10 @@ data class MatchFeedback(
  * Configuration for note matching.
  */
 data class MatcherConfig(
-    val minConfidence: Float = 0.7f,        // Minimum confidence to accept pitch
-    val pitchStabilityMs: Long = 50,        // Time pitch must be stable before matching
-    val debounceMs: Long = 100              // Minimum time between matches
+    val minConfidence: Float = 0.0f,        // Minimum confidence (native layer already filters)
+    val pitchStabilityMs: Long = 30,        // Time pitch must be stable before matching
+    val debounceMs: Long = 80,              // Minimum time between matches
+    val requireNoteChangeAfterMatch: Boolean = true  // Require pitch to change before same note matches again
 )
 
 /**
@@ -54,6 +55,9 @@ class NoteMatcher(
     private var lastDetectedMidi: Int = -1
     private var stableSinceNs: Long = 0
     private var isActive: Boolean = false
+    private var lastMatchedMidi: Int = -1      // Last note that was successfully matched
+    private var canRematchSameNote: Boolean = true  // Can the same note match again?
+    private var lastPitchEventTimeNs: Long = 0     // Time of last pitch event (for detecting silence)
 
     /**
      * Load a score into the matcher.
@@ -73,6 +77,9 @@ class NoteMatcher(
         lastMatchTimeNs = 0
         lastDetectedMidi = -1
         stableSinceNs = 0
+        lastMatchedMidi = -1
+        canRematchSameNote = true
+        lastPitchEventTimeNs = 0
     }
 
     /**
@@ -117,8 +124,18 @@ class NoteMatcher(
 
         val now = event.timestampNs
 
-        // Check pitch stability
+        // Detect silence (gap in pitch events) - indicates key was released
+        // If there's been a gap of >100ms since last pitch event, allow same note to match again
+        val silenceGapMs = if (lastPitchEventTimeNs > 0) (now - lastPitchEventTimeNs) / 1_000_000 else 0
+        if (silenceGapMs > 100) {
+            canRematchSameNote = true  // Key was likely released and pressed again
+        }
+        lastPitchEventTimeNs = now
+
+        // Check pitch stability and track note changes
         if (event.midiNote != lastDetectedMidi) {
+            // A different note was detected - allow previous note to match again later
+            canRematchSameNote = true
             lastDetectedMidi = event.midiNote
             stableSinceNs = now
             return  // Wait for stability
@@ -133,6 +150,14 @@ class NoteMatcher(
         val timeSinceLastMatch = (now - lastMatchTimeNs) / 1_000_000
         if (timeSinceLastMatch < config.debounceMs) {
             return  // Too soon after last match
+        }
+
+        // Prevent same note from matching twice without release or different note
+        // This prevents one continuous key press from counting as multiple notes
+        if (config.requireNoteChangeAfterMatch &&
+            event.midiNote == lastMatchedMidi &&
+            !canRematchSameNote) {
+            return  // Same note held continuously, waiting for release or different note
         }
 
         // Process the pitch
@@ -158,8 +183,10 @@ class NoteMatcher(
 
         lastMatchTimeNs = now
 
-        // Sync beat clock with position tracker
+        // Track the matched note for preventing duplicate detections
         if (result != MatchResult.WRONG_PITCH && result != MatchResult.NO_MATCH) {
+            lastMatchedMidi = event.midiNote
+            canRematchSameNote = false  // Need release or different note before this one can match again
             beatClock.advanceNote()
         }
 

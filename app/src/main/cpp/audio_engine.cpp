@@ -26,29 +26,47 @@ public:
 
     bool start() override {
         if (stream_) {
+            LOGI("Audio stream already running");
             return true;  // Already running
         }
 
-        // Use settings compatible with emulator
+        LOGI("Starting audio input stream...");
+
+        // Build audio stream with explicit settings for real devices
         oboe::AudioStreamBuilder builder;
         builder.setDirection(oboe::Direction::Input)
-               ->setPerformanceMode(oboe::PerformanceMode::None)
-               ->setSharingMode(oboe::SharingMode::Shared)
+               ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+               ->setSharingMode(oboe::SharingMode::Exclusive)
                ->setFormat(oboe::AudioFormat::Float)
                ->setChannelCount(oboe::ChannelCount::Mono)
+               ->setSampleRate(44100)
                ->setDataCallback(this);
 
         oboe::Result result = builder.openStream(stream_);
         if (result != oboe::Result::OK) {
             LOGE("Failed to open input stream: %s", oboe::convertToText(result));
-            return false;
+            // Try again with more permissive settings
+            LOGI("Retrying with shared mode...");
+            builder.setSharingMode(oboe::SharingMode::Shared)
+                   ->setPerformanceMode(oboe::PerformanceMode::None);
+            result = builder.openStream(stream_);
+            if (result != oboe::Result::OK) {
+                LOGE("Failed to open input stream (retry): %s", oboe::convertToText(result));
+                return false;
+            }
         }
 
         // Get actual sample rate
         sampleRate_ = stream_->getSampleRate();
+        LOGI("Stream opened: sampleRate=%d, framesPerBurst=%d",
+             sampleRate_, stream_->getFramesPerBurst());
 
-        // Create pitch detector
+        // Create pitch detector and apply pending settings
         pitchDetector_ = createPitchDetector(sampleRate_, PITCH_BUFFER_SIZE);
+        if (pitchDetector_) {
+            pitchDetector_->setConfidenceThreshold(pendingConfidenceThreshold_);
+            pitchDetector_->setSilenceThreshold(pendingSilenceThreshold_);
+        }
 
         // Reserve buffer space
         audioBuffer_.reserve(PITCH_BUFFER_SIZE);
@@ -56,10 +74,12 @@ public:
         result = stream_->requestStart();
         if (result != oboe::Result::OK) {
             LOGE("Failed to start input stream: %s", oboe::convertToText(result));
+            stream_->close();
+            stream_.reset();
             return false;
         }
 
-        LOGI("Audio input started: sampleRate=%d", sampleRate_);
+        LOGI("Audio input started successfully: sampleRate=%d", sampleRate_);
         return true;
     }
 
@@ -75,10 +95,25 @@ public:
 
     void setNoiseGateThreshold(float thresholdDb) override {
         noiseGateThreshold_ = std::pow(10.0f, thresholdDb / 20.0f);
+        LOGI("Noise gate threshold set to %.1f dB (linear: %.4f)", thresholdDb, noiseGateThreshold_);
     }
 
     void setPitchCallback(PitchCallback callback) override {
         pitchCallback_ = callback;
+    }
+
+    void setConfidenceThreshold(float threshold) override {
+        if (pitchDetector_) {
+            pitchDetector_->setConfidenceThreshold(threshold);
+        }
+        pendingConfidenceThreshold_ = threshold;
+    }
+
+    void setSilenceThreshold(float thresholdDb) override {
+        if (pitchDetector_) {
+            pitchDetector_->setSilenceThreshold(thresholdDb);
+        }
+        pendingSilenceThreshold_ = thresholdDb;
     }
 
     oboe::DataCallbackResult onAudioReady(
@@ -134,7 +169,9 @@ private:
     std::unique_ptr<PitchDetector> pitchDetector_;
     std::vector<float> audioBuffer_;
     int sampleRate_ = 44100;
-    float noiseGateThreshold_ = 0.01f;  // -40dB default
+    float noiseGateThreshold_ = 0.005f;  // -46dB default (more sensitive)
+    float pendingConfidenceThreshold_ = 0.3f;
+    float pendingSilenceThreshold_ = -50.0f;
     PitchCallback pitchCallback_ = nullptr;
 };
 

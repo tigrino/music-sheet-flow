@@ -44,7 +44,7 @@ android {
             isMinifyEnabled = false
             ndk {
                 abiFilters.clear()
-                abiFilters += listOf("x86_64")  // Emulator only for dev
+                abiFilters += listOf("x86_64", "arm64-v8a")  // Emulator + real devices
             }
         }
         release {
@@ -87,6 +87,15 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    // Custom APK naming: MusicSheetFlow-<version>-<buildType>.apk
+    applicationVariants.all {
+        val variant = this
+        variant.outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "MusicSheetFlow-${variant.versionName}-${variant.buildType.name}.apk"
         }
     }
 }

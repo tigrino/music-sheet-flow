@@ -27,15 +27,15 @@ import net.tigr.musicsheetflow.ui.theme.MusicSheetFlowColors
  * Configuration for score rendering.
  */
 data class ScoreRenderConfig(
-    val staffHeight: Float = 60f,           // Height of 4 spaces between 5 lines
-    val staffSpacing: Float = 100f,         // Space between treble and bass staves
-    val systemSpacing: Float = 30f,         // Space between systems (rows) - portrait only
+    val staffHeight: Float = 70f,           // Height of 4 spaces between 5 lines
+    val staffSpacing: Float = 115f,         // Space between treble and bass staves
+    val systemSpacing: Float = 35f,         // Space between systems (rows) - portrait only
     val leftMargin: Float = 25f,            // Left margin
-    val measureWidth: Float = 250f,         // Width per measure
-    val noteSpacing: Float = 40f,           // Minimum spacing between notes
-    val clefWidth: Float = 50f,             // Space for clef
-    val keySignatureWidth: Float = 40f,     // Space for key signature
-    val timeSignatureWidth: Float = 40f,    // Space for time signature
+    val measureWidth: Float = 280f,         // Width per measure
+    val noteSpacing: Float = 45f,           // Minimum spacing between notes
+    val clefWidth: Float = 55f,             // Space for clef
+    val keySignatureWidth: Float = 45f,     // Space for key signature
+    val timeSignatureWidth: Float = 45f,    // Space for time signature
     val staffLineColor: Color = Color.Black,
     val noteColor: Color = Color.Black,
     val currentNoteColor: Color = MusicSheetFlowColors.CurrentNote,
@@ -55,6 +55,7 @@ fun ScoreRenderer(
     playedNoteIndices: Set<Int> = emptySet(),
     noteStateMap: Map<Int, NoteState> = emptyMap(),
     showNoteNames: Boolean = false,
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem = net.tigr.musicsheetflow.util.NoteNaming.getNamingSystem(),
     config: ScoreRenderConfig = ScoreRenderConfig(),
     modifier: Modifier = Modifier
 ) {
@@ -83,7 +84,8 @@ fun ScoreRenderer(
     BoxWithConstraints(modifier = modifier) {
         val availableWidth = with(density) { maxWidth.toPx() }
         val availableHeight = with(density) { maxHeight.toPx() }
-        val isLandscape = availableWidth > availableHeight
+        // Use aspect ratio to detect orientation - landscape if width is 1.3x height or more
+        val isLandscape = availableWidth > availableHeight * 1.3f
 
         if (isLandscape) {
             // LANDSCAPE: Original horizontal scroll layout
@@ -97,6 +99,7 @@ fun ScoreRenderer(
                 playbackBeat = playbackBeat,
                 noteStateMap = noteStateMap,
                 showNoteNames = showNoteNames,
+                namingSystem = namingSystem,
                 config = config,
                 density = density
             )
@@ -112,6 +115,7 @@ fun ScoreRenderer(
                 playbackBeat = playbackBeat,
                 noteStateMap = noteStateMap,
                 showNoteNames = showNoteNames,
+                namingSystem = namingSystem,
                 config = config,
                 density = density,
                 availableWidth = availableWidth,
@@ -135,6 +139,7 @@ private fun ScoreRendererLandscape(
     playbackBeat: Float?,
     noteStateMap: Map<Int, NoteState>,
     showNoteNames: Boolean,
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem,
     config: ScoreRenderConfig,
     density: androidx.compose.ui.unit.Density
 ) {
@@ -253,7 +258,7 @@ private fun ScoreRendererLandscape(
                         else -> config.noteColor
                     }
 
-                    drawNote(bravuraTypeface, config, note, staffY, staffY + config.staffHeight + config.staffSpacing, noteX, noteColor, showNoteNames)
+                    drawNote(bravuraTypeface, config, note, staffY, staffY + config.staffHeight + config.staffSpacing, noteX, noteColor, showNoteNames, namingSystem)
                     globalNoteIndex++
                 }
                 cumulativeBeats += measureBeats
@@ -278,6 +283,7 @@ private fun ScoreRendererPortrait(
     playbackBeat: Float?,
     noteStateMap: Map<Int, NoteState>,
     showNoteNames: Boolean,
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem,
     config: ScoreRenderConfig,
     density: androidx.compose.ui.unit.Density,
     availableWidth: Float,
@@ -286,24 +292,31 @@ private fun ScoreRendererPortrait(
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Portrait config: sized for exactly 3 visible rows with bigger, readable notes
+    // Portrait config: exactly 2 measures per line, filling the width
+    val measuresPerSystem = 2
+
+    // Calculate prefix width first (clef, key sig, time sig)
+    val baseClefWidth = 65f
+    val baseKeySignatureWidth = 50f
+    val baseTimeSignatureWidth = 50f
+    val systemPrefixWidth = config.leftMargin + baseClefWidth + baseKeySignatureWidth + baseTimeSignatureWidth
+
+    // Calculate measure width to fill remaining space with exactly 2 measures
+    val usableWidth = availableWidth - systemPrefixWidth - 15f
+    val calculatedMeasureWidth = usableWidth / measuresPerSystem
+
     val portraitConfig = config.copy(
-        staffHeight = 85f,
-        staffSpacing = 115f,
-        systemSpacing = 50f,
-        measureWidth = 260f,
-        clefWidth = 60f,
-        keySignatureWidth = 45f,
-        timeSignatureWidth = 45f
+        staffHeight = 95f,
+        staffSpacing = 130f,
+        systemSpacing = 55f,
+        measureWidth = calculatedMeasureWidth,
+        clefWidth = baseClefWidth,
+        keySignatureWidth = baseKeySignatureWidth,
+        timeSignatureWidth = baseTimeSignatureWidth
     )
 
-    // Calculate system height first to determine how many fit
+    // Calculate system height
     val systemHeight = portraitConfig.staffHeight * 2 + portraitConfig.staffSpacing + portraitConfig.systemSpacing
-
-    // Aim for 3 systems visible - calculate measures per system based on width
-    val systemPrefixWidth = portraitConfig.leftMargin + portraitConfig.clefWidth + portraitConfig.keySignatureWidth + portraitConfig.timeSignatureWidth
-    val usableWidth = availableWidth - systemPrefixWidth - 15f
-    val measuresPerSystem = (usableWidth / portraitConfig.measureWidth).toInt().coerceAtLeast(2)
 
     val numSystems = ((totalMeasures + measuresPerSystem - 1) / measuresPerSystem).coerceAtLeast(1)
     val totalHeight = numSystems * systemHeight + 25f
@@ -402,7 +415,7 @@ private fun ScoreRendererPortrait(
                             else -> portraitConfig.noteColor
                         }
 
-                        drawNote(bravuraTypeface, portraitConfig, note, trebleY, bassY, noteX, noteColor, showNoteNames)
+                        drawNote(bravuraTypeface, portraitConfig, note, trebleY, bassY, noteX, noteColor, showNoteNames, namingSystem)
                         globalNoteIndex++
                     }
                     cumulativeBeats += measureBeats
@@ -636,7 +649,8 @@ private fun DrawScope.drawNote(
     bassY: Float,
     x: Float,
     color: Color,
-    showNoteName: Boolean = false
+    showNoteName: Boolean = false,
+    namingSystem: net.tigr.musicsheetflow.util.NoteNaming.NamingSystem = net.tigr.musicsheetflow.util.NoteNaming.getNamingSystem()
 ) {
     if (note.isRest) {
         drawRest(typeface, config, note, trebleY, bassY, x, color)
@@ -722,7 +736,8 @@ private fun DrawScope.drawNote(
 
     // Draw note name if enabled
     if (showNoteName) {
-        val noteName = note.noteName() ?: return
+        val pitch = note.pitch ?: return
+        val noteName = net.tigr.musicsheetflow.util.NoteNaming.fromPitch(pitch.step, pitch.octave, pitch.alter, namingSystem)
         val nameTextPaint = android.graphics.Paint().apply {
             textSize = fontSize * 0.35f
             this.color = android.graphics.Color.argb(

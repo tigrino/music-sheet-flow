@@ -128,15 +128,10 @@ data class Pitch(
     }
 
     /**
-     * Get note name with accidental.
+     * Get note name with accidental using locale-aware naming.
      */
     fun toNoteName(): String {
-        val accidental = when (alter) {
-            -1 -> "b"
-            1 -> "#"
-            else -> ""
-        }
-        return "$step$accidental$octave"
+        return net.tigr.musicsheetflow.util.NoteNaming.fromPitch(step, octave, alter)
     }
 }
 

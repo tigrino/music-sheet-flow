@@ -18,6 +18,12 @@ public:
     // Detect pitch from audio samples
     // Returns PitchResult with frequency=0 if no pitch detected
     virtual PitchResult detect(const float* samples, int numSamples) = 0;
+
+    // Set minimum confidence threshold (0.0-1.0, default 0.3)
+    virtual void setConfidenceThreshold(float threshold) = 0;
+
+    // Set silence threshold in dB (e.g., -50.0, default -50)
+    virtual void setSilenceThreshold(float thresholdDb) = 0;
 };
 
 // Factory function to create pitch detector
