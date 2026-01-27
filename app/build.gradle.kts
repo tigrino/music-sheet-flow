@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "net.tigr.musicsheetflow"
     compileSdk = 35
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "net.tigr.musicsheetflow"
@@ -87,6 +88,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 

@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 
+# 16 KB page size alignment for Android 15+ compatibility
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
 # Oboe - from third_party/oboe
 set(OBOE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/oboe)
 if(EXISTS ${OBOE_DIR}/CMakeLists.txt)
